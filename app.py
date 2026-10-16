@@ -3,13 +3,13 @@ Bye Bye Churn: Retention Intelligence Dashboard
 ------------------------------------------------
 Run:   streamlit run Home.py
 
-Files needed (project root ya script ke aas-paas):
-  - bye_bye_churn_pipeline.joblib            (trained pipeline, predict_proba wala)
+Files needed (project root or relative to script):
+  - bye_bye_churn_pipeline.joblib            (trained pipeline with predict_proba)
   - data/processed/risk_scores.csv           (customerID, churn_probability, risk_band,
                                               MonthlyCharges, annual_revenue_at_risk, ...)
-  - reports/figures/shap_summary.png         (optional, SHAP page ke liye)
+  - reports/figures/shap_summary.png         (optional, for SHAP page)
 
-Optional columns jo dashboard ko aur powerful banate hain:
+Optional columns that enrich dashboard capabilities:
   actual_churn, data_split, top_3_churn_reasons, tenure, Contract, InternetService,
   PaymentMethod, TechSupport, expected_monthly_loss
 """
@@ -47,7 +47,7 @@ BAND_COLORS = {"Low": C["low"], "Medium": C["med"], "High": C["high"]}
 RISK_SCALE = [[0.0, C["low"]], [0.5, C["med"]], [1.0, C["high"]]]
 TENURE_LABELS = ["0-12 mo", "13-24 mo", "25-48 mo", "49+ mo"]
 
-# Columns jo model ko kabhi nahi dene (dashboard ke apne banaye hue)
+# Operational columns excluded from model inputs (dashboard-engineered features)
 DASH_COLS = [
     "churn_probability", "risk_band", "expected_monthly_loss", "annual_revenue_at_risk",
     "top_3_churn_reasons", "actual_churn", "data_split", "tenure_band", "churn_pct",
@@ -154,7 +154,7 @@ st.markdown(CSS, unsafe_allow_html=True)
 # 2. HELPERS
 # =====================================================================
 def clean(s: str) -> str:
-    """HTML ko ek line mein karo (markdown indent ka masla na aaye)."""
+    """Flatten HTML to a single line to prevent Markdown indentation issues."""
     return re.sub(r"\n\s*", "", s)
 
 
@@ -193,7 +193,7 @@ def kpi(col, title, value, sub="", tone="neutral"):
 
 
 def stretch(fn):
-    """Naye Streamlit mein width='stretch', purane mein use_container_width=True."""
+    """Compatible with width='stretch' on newer Streamlit and use_container_width=True on older versions."""
     try:
         if "width" in inspect.signature(fn).parameters:
             return {"width": "stretch"}
@@ -249,7 +249,7 @@ def to_binary(s):
     return s.astype(str).str.strip().str.lower().map(m)
 
 
-def gauge(value, ref=None, title="Churn risk", lo=0.3, hi=0.6):
+def gauge(value, ref=None, title="Churn Risk", lo=0.3, hi=0.6):
     kw = {}
     if ref is not None:
         kw["delta"] = {"reference": ref * 100, "position": "top", "valueformat": ".1f",
@@ -279,12 +279,12 @@ def gauge(value, ref=None, title="Churn risk", lo=0.3, hi=0.6):
 # =====================================================================
 # 3. DATA AND MODEL
 # =====================================================================
-@st.cache_resource(show_spinner="Model load ho raha hai...")
+@st.cache_resource(show_spinner="Loading model pipeline...")
 def load_model(path):
     return joblib.load(path)
 
 
-@st.cache_data(show_spinner="Data load ho raha hai...")
+@st.cache_data(show_spinner="Loading customer risk data...")
 def load_data(path):
     return pd.read_csv(path)
 
@@ -335,12 +335,12 @@ mp, dp = find_file(MODEL_FILES), find_file(DATA_FILES)
 try:
     if mp is None or dp is None:
         missing = [f for f, p in [(MODEL_FILES[0], mp), (DATA_FILES[0], dp)] if p is None]
-        raise FileNotFoundError("Ye file(s) nahi mili: " + ", ".join(missing))
+        raise FileNotFoundError("Missing file(s): " + ", ".join(missing))
     model = load_model(mp)
     DF = prepare(load_data(dp))
 except Exception as e:
-    st.error(f"Initialization error: {e}. Model ya data load nahi ho saka. "
-             "Files ka path check karo aur app project root se chalao.")
+    st.error(f"Initialization Error: {e}. Model or dataset could not be loaded. "
+             "Please check file paths and ensure the application is executed from the project root.")
     st.stop()
 
 LO_CUT, HI_CUT = band_cutoffs(DF)
@@ -373,7 +373,7 @@ PAGES = {
 }
 
 st.sidebar.markdown(
-    clean('<div class="brand"><b>📉 Bye Bye Churn</b><span>Retention intelligence</span></div>'),
+    clean('<div class="brand"><b>📉 Bye Bye Churn</b><span>Retention Intelligence</span></div>'),
     unsafe_allow_html=True,
 )
 page = st.sidebar.radio("Navigation", list(PAGES.keys()), label_visibility="collapsed")
@@ -386,7 +386,7 @@ def reset_filters():
 
 
 def sidebar_filters(df):
-    st.sidebar.markdown('<div class="side-title">Filters (sab pages par lagte hain)</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="side-title">Global Filters</div>', unsafe_allow_html=True)
     defaults, mask = {}, pd.Series(True, index=df.index)
 
     def multi(col, label, options):
@@ -396,10 +396,10 @@ def sidebar_filters(df):
             st.session_state[key] = options
         return st.sidebar.multiselect(label, options, key=key)
 
-    band_sel = multi("risk_band", "Risk level", [b for b in BAND_ORDER if b in set(df["risk_band"].astype(str))])
+    band_sel = multi("risk_band", "Risk Band", [b for b in BAND_ORDER if b in set(df["risk_band"].astype(str))])
     mask &= df["risk_band"].astype(str).isin(band_sel)
-    for col, label in [("Contract", "Contract"), ("InternetService", "Internet service"),
-                       ("PaymentMethod", "Payment method")]:
+    for col, label in [("Contract", "Contract"), ("InternetService", "Internet Service"),
+                       ("PaymentMethod", "Payment Method")]:
         if col in df.columns:
             opts = sorted(df[col].dropna().astype(str).unique())
             sel = multi(col, label, opts)
@@ -409,17 +409,17 @@ def sidebar_filters(df):
         lo, hi = int(df["tenure"].min()), int(df["tenure"].max())
         defaults["f_tenure"] = (lo, hi)
         st.session_state.setdefault("f_tenure", (lo, hi))
-        r = st.sidebar.slider("Tenure (months)", lo, hi, key="f_tenure")
+        r = st.sidebar.slider("Tenure (Months)", lo, hi, key="f_tenure")
         mask &= df["tenure"].between(r[0], r[1])
     if "MonthlyCharges" in df.columns and df["MonthlyCharges"].notna().any():
         lo, hi = float(np.floor(df["MonthlyCharges"].min())), float(np.ceil(df["MonthlyCharges"].max()))
         defaults["f_charges"] = (lo, hi)
         st.session_state.setdefault("f_charges", (lo, hi))
-        r = st.sidebar.slider("Monthly charges ($)", lo, hi, key="f_charges")
+        r = st.sidebar.slider("Monthly Charges ($)", lo, hi, key="f_charges")
         mask &= df["MonthlyCharges"].between(r[0], r[1])
 
     st.session_state["_defaults"] = defaults
-    st.sidebar.button("Reset filters", on_click=reset_filters, **stretch(st.button))
+    st.sidebar.button("Reset Filters", on_click=reset_filters, **stretch(st.button))
     return df[mask]
 
 
@@ -432,7 +432,7 @@ st.sidebar.markdown(
 )
 
 if FDF.empty:
-    st.warning("Filters ke baad koi customer nahi bacha. Sidebar mein filters ko 'Reset filters' se wapas karo.")
+    st.warning("No customers match the current filter criteria. Click 'Reset Filters' in the sidebar to restore data.")
     st.stop()
 
 
@@ -450,7 +450,7 @@ def seg_table(df, dim):
 
 # ------------------------------------------------------------- OVERVIEW
 def page_overview(df):
-    header("Retention overview", "Kaun customer jane wala hai, kitna paisa daav par hai, aur pehle kise bachana hai.")
+    header("Retention Overview", "Identify at-risk customers, quantify revenue exposure, and prioritize intervention cohorts.")
 
     total = float(df["annual_revenue_at_risk"].sum())
     by = df.groupby("risk_band", observed=False)["annual_revenue_at_risk"].sum().reindex(BAND_ORDER).fillna(0.0)
@@ -464,37 +464,37 @@ def page_overview(df):
     st.markdown(clean(
         f'<div class="hero"><div class="hero-num">{money(total)}</div>'
         f'<div class="hero-sub">expected annual revenue at risk across <b>{len(df):,} customers</b>. '
-        f'<b>{share_high:.0%}</b> of it sits with the <b>{n_high:,} high-risk customers</b>, '
-        f'so retention offers should start there.</div>'
+        f'<b>{share_high:.0%}</b> is concentrated among <b>{n_high:,} high-risk customers</b>, '
+        f'making them the primary candidates for targeted retention campaigns.</div>'
         f'<div class="hero-bar">{segs}</div><div class="hero-leg">{leg}</div></div>'), unsafe_allow_html=True)
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    kpi(c1, "Customers in view", f"{len(df):,}", f"{len(df) / len(DF):.0%} of all customers")
-    kpi(c2, "Average churn risk", pct(df["churn_probability"].mean()), "mean model probability",
+    kpi(c1, "Customers in View", f"{len(df):,}", f"{len(df) / len(DF):.0%} of total cohort")
+    kpi(c2, "Average Churn Risk", pct(df["churn_probability"].mean()), "mean model probability",
         "warn" if df["churn_probability"].mean() > 0.3 else "good")
-    kpi(c3, "High-risk customers", f"{n_high:,}", f"{n_high / len(df):.1%} of customers in view", "bad")
-    kpi(c4, "Monthly revenue at risk", money(df["expected_monthly_loss"].sum()), "probability x monthly bill")
+    kpi(c3, "High-Risk Accounts", f"{n_high:,}", f"{n_high / len(df):.1%} of active view", "bad")
+    kpi(c4, "Monthly Revenue at Risk", money(df["expected_monthly_loss"].sum()), "probability x monthly charge")
     if "actual_churn" in df.columns and to_binary(df["actual_churn"]).notna().any():
         ar = to_binary(df["actual_churn"]).mean()
-        kpi(c5, "Actual churn rate", pct(ar), "from labelled customers", "warn")
+        kpi(c5, "Historical Churn Rate", pct(ar), "ground-truth labelled data", "warn")
     else:
-        kpi(c5, "Avg monthly bill", money(df["MonthlyCharges"].mean()), "customers in view")
+        kpi(c5, "Avg Monthly Bill", money(df["MonthlyCharges"].mean()), "active cohort average")
 
     st.write("")
     a, b = st.columns(2)
     with a, st.container(border=True):
-        card_title("Risk mix", "Customers per risk level")
+        card_title("Risk Band Distribution", "Customer breakdown across risk categories")
         fig = px.pie(df, names="risk_band", color="risk_band", color_discrete_map=BAND_COLORS,
                      category_orders={"risk_band": BAND_ORDER}, hole=0.62)
         fig.update_traces(textinfo="percent", sort=False)
         chart(style(fig, 320), key="ov_pie")
     with b, st.container(border=True):
-        card_title("Revenue at risk by level", "Annual, expected")
+        card_title("Revenue at Risk by Tier", "Expected annual revenue exposure")
         bd = by.reset_index()
         bd.columns = ["risk_band", "revenue"]
         fig = px.bar(bd, x="risk_band", y="revenue", color="risk_band", color_discrete_map=BAND_COLORS,
                      text=bd["revenue"].map(money), category_orders={"risk_band": BAND_ORDER})
-        fig.update_layout(xaxis_title=None, yaxis_title="Revenue at risk ($)")
+        fig.update_layout(xaxis_title=None, yaxis_title="Revenue at Risk ($)")
         chart(style(fig, 320, legend=False), key="ov_bar")
 
     dims = [c for c in ["Contract", "InternetService", "PaymentMethod", "tenure_band", "TechSupport",
@@ -504,21 +504,21 @@ def page_overview(df):
         with st.container(border=True):
             top = st.columns([3, 1])
             with top[0]:
-                card_title("Segment explorer", "Kis group mein churn risk zyada hai, aur uska paisa kitna hai")
+                card_title("Segment Explorer", "Analyze risk concentration and revenue exposure across customer segments")
             dim = top[1].selectbox("Group by", dims, label_visibility="collapsed")
             g = seg_table(df, dim)
             x1, x2 = st.columns(2)
             f1 = px.bar(g, x="avg_risk", y=dim, orientation="h", color="avg_risk",
                         color_continuous_scale=RISK_SCALE, text=g["avg_risk"].map(lambda v: f"{v:.0%}"),
                         hover_data={"customers": True})
-            f1.update_layout(coloraxis_showscale=False, xaxis_title="Average churn risk", yaxis_title=None,
+            f1.update_layout(coloraxis_showscale=False, xaxis_title="Average Churn Risk", yaxis_title=None,
                              xaxis_tickformat=".0%")
             f1.update_xaxes(range=[0, max(g["avg_risk"].max() * 1.2, 0.05)])
             with x1:
                 chart(style(f1, 300, legend=False), key="ov_seg1")
             f2 = px.bar(g.sort_values("revenue"), x="revenue", y=dim, orientation="h",
                         text=g.sort_values("revenue")["revenue"].map(money), color_discrete_sequence=[C["accent"]])
-            f2.update_layout(xaxis_title="Annual revenue at risk ($)", yaxis_title=None)
+            f2.update_layout(xaxis_title="Annual Revenue at Risk ($)", yaxis_title=None)
             with x2:
                 chart(style(f2, 300, legend=False), key="ov_seg2")
 
@@ -526,7 +526,7 @@ def page_overview(df):
         h, t = st.columns(2)
         if {"Contract", "tenure_band"} <= set(df.columns):
             with h, st.container(border=True):
-                card_title("Risk heatmap", "Contract aur tenure ke hisaab se average churn risk")
+                card_title("Risk Heatmap", "Average churn probability by contract structure and tenure cohort")
                 pv = df.pivot_table(index="Contract", columns="tenure_band", values="churn_probability", aggfunc="mean")
                 pv = pv.reindex(columns=[c for c in TENURE_LABELS if c in pv.columns])
                 fig = px.imshow(pv, text_auto=".0%", aspect="auto", color_continuous_scale=RISK_SCALE)
@@ -534,12 +534,12 @@ def page_overview(df):
                 chart(style(fig, 320, legend=False), key="ov_heat")
         if {"Contract", "InternetService"} <= set(df.columns):
             with t, st.container(border=True):
-                card_title("Where the money is", "Revenue at risk: contract, internet service, risk level")
+                card_title("Revenue Concentration Treemap", "Exposure breakdown by contract, service type, and risk tier")
                 tm = (df.assign(Contract=df["Contract"].astype(str), InternetService=df["InternetService"].astype(str),
                                 risk_band=df["risk_band"].astype(str))
                       .groupby(["Contract", "InternetService", "risk_band"])["annual_revenue_at_risk"].sum().reset_index())
                 tm = tm[tm["annual_revenue_at_risk"] > 0]
-                fig = px.treemap(tm, path=[px.Constant("All customers"), "Contract", "InternetService", "risk_band"],
+                fig = px.treemap(tm, path=[px.Constant("All Customers"), "Contract", "InternetService", "risk_band"],
                                  values="annual_revenue_at_risk", color="risk_band",
                                  color_discrete_map={**BAND_COLORS, "(?)": C["line"]})
                 fig.update_traces(textinfo="label+value", texttemplate="%{label}<br>$%{value:,.0f}")
@@ -547,7 +547,7 @@ def page_overview(df):
 
     if {"tenure", "MonthlyCharges"} <= set(df.columns):
         with st.container(border=True):
-            card_title("Tenure vs bill", "Har point ek customer hai, rang churn risk dikhata hai")
+            card_title("Tenure vs. Monthly Charges", "Scatter distribution of accounts color-coded by model risk score")
             s = df.sample(min(len(df), 2500), random_state=1)
             hd = [c for c in ["customerID", "risk_band"] if c in s.columns]
             fig = px.scatter(s, x="tenure", y="MonthlyCharges", color="churn_probability",
@@ -556,7 +556,7 @@ def page_overview(df):
             chart(style(fig, 360, legend=False), key="ov_scatter")
 
     with st.container(border=True):
-        card_title("Top 10 customers by revenue at risk", "Inhein sab se pehle call karo")
+        card_title("Top 10 High-Exposure Accounts", "Priority outreach list ranked by annual revenue at risk")
         cols = [c for c in ["customerID", "risk_band", "churn_probability", "MonthlyCharges", "tenure",
                             "Contract", "annual_revenue_at_risk", "top_3_churn_reasons"] if c in df.columns]
         t10 = df.nlargest(10, "annual_revenue_at_risk")[cols].copy()
@@ -567,26 +567,26 @@ def page_overview(df):
 def col_config(d):
     cfg = {}
     if "churn_pct" in d.columns:
-        cfg["churn_pct"] = st.column_config.ProgressColumn("Churn risk", min_value=0, max_value=100, format="%.1f%%")
+        cfg["churn_pct"] = st.column_config.ProgressColumn("Churn Risk", min_value=0, max_value=100, format="%.1f%%")
     if "churn_probability" in d.columns:
-        cfg["churn_probability"] = st.column_config.NumberColumn("Churn probability", format="%.3f")
+        cfg["churn_probability"] = st.column_config.NumberColumn("Probability", format="%.3f")
     for c in ["MonthlyCharges"]:
         if c in d.columns:
-            cfg[c] = st.column_config.NumberColumn("Monthly charge", format="$%.2f")
+            cfg[c] = st.column_config.NumberColumn("Monthly Bill", format="$%.2f")
     if "annual_revenue_at_risk" in d.columns:
-        cfg["annual_revenue_at_risk"] = st.column_config.NumberColumn("Annual revenue at risk", format="$%.0f")
+        cfg["annual_revenue_at_risk"] = st.column_config.NumberColumn("Annual Revenue at Risk", format="$%.0f")
     if "top_3_churn_reasons" in d.columns:
-        cfg["top_3_churn_reasons"] = st.column_config.TextColumn("Top churn reasons", width="large")
+        cfg["top_3_churn_reasons"] = st.column_config.TextColumn("Key Drivers", width="large")
     return cfg
 
 
 # ------------------------------------------------------------- EXPLORER
 def page_explorer(df):
-    header("Risk explorer", "Customers ko filter karo, dekho, aur list CSV mein download karo.")
+    header("Risk Explorer", "Filter, inspect individual customer profiles, and export cohort rosters to CSV.")
     c1, c2, c3 = st.columns([1.3, 1.3, 1.6])
-    bands = c1.multiselect("Risk level", BAND_ORDER, default=["High"])
-    prange = c2.slider("Churn probability", 0.0, 1.0, (0.0, 1.0), 0.01)
-    q = c3.text_input("Search customer ID", placeholder="e.g. 7590-VHVEG")
+    bands = c1.multiselect("Risk Band", BAND_ORDER, default=["High"])
+    prange = c2.slider("Churn Probability Range", 0.0, 1.0, (0.0, 1.0), 0.01)
+    q = c3.text_input("Search Customer ID", placeholder="e.g. 7590-VHVEG")
 
     v = df.copy()
     if bands:
@@ -595,46 +595,46 @@ def page_explorer(df):
     if q.strip():
         v = v[v["customerID"].astype(str).str.contains(q.strip(), case=False, na=False)]
     if v.empty:
-        st.info("In filters par koi customer nahi mila. Probability range ya risk level badal kar dekho.")
+        st.info("No customer records match the current criteria. Please broaden your probability range or risk tiers.")
         return
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Customers", f"{len(v):,}")
-    m2.metric("Average churn risk", pct(v["churn_probability"].mean()))
-    m3.metric("Monthly bills", money(v["MonthlyCharges"].sum()))
-    m4.metric("Annual revenue at risk", money(v["annual_revenue_at_risk"].sum()))
+    m1.metric("Selected Customers", f"{len(v):,}")
+    m2.metric("Average Churn Risk", pct(v["churn_probability"].mean()))
+    m3.metric("Total Monthly Billings", money(v["MonthlyCharges"].sum()))
+    m4.metric("Annual Revenue at Risk", money(v["annual_revenue_at_risk"].sum()))
 
     with st.container(border=True):
-        card_title("Probability distribution", "Dotted lines risk level ki hadd batati hain")
+        card_title("Probability Distribution", "Dashed lines represent current risk band cutoffs")
         fig = px.histogram(v, x="churn_probability", color="risk_band", nbins=40,
                            color_discrete_map=BAND_COLORS, category_orders={"risk_band": BAND_ORDER})
         for x in (LO_CUT, HI_CUT):
             fig.add_vline(x=x, line_dash="dot", line_color=C["mute"])
-        fig.update_layout(xaxis_title="Churn probability", yaxis_title="Customers", xaxis_tickformat=".0%")
+        fig.update_layout(xaxis_title="Churn Probability", yaxis_title="Customer Count", xaxis_tickformat=".0%")
         chart(style(fig, 280), key="ex_hist")
 
     with st.container(border=True):
-        card_title("Customer list", f"{len(v):,} customers, sab se risky pehle")
+        card_title("Customer Roster", f"{len(v):,} accounts, sorted by descending risk probability")
         v = v.sort_values("churn_probability", ascending=False).copy()
         v["churn_pct"] = v["churn_probability"] * 100
         v["risk_band"] = v["risk_band"].astype(str)
         cols = [c for c in ["customerID", "risk_band", "churn_pct", "MonthlyCharges", "tenure", "Contract",
                             "annual_revenue_at_risk", "top_3_churn_reasons"] if c in v.columns]
         table(v[cols], column_config=col_config(v[cols]), height=460)
-        st.download_button("Download this list (CSV)", v.drop(columns=["churn_pct"]).to_csv(index=False).encode(),
-                           "risk_list.csv", "text/csv")
+        st.download_button("Download CSV Roster", v.drop(columns=["churn_pct"]).to_csv(index=False).encode(),
+                           "risk_roster.csv", "text/csv")
 
 
 # ------------------------------------------------------------- CUSTOMER 360
 def page_c360(df):
-    header("Customer 360", "Ek customer ki poori tasveer: risk, wajah aur paisa.")
+    header("Customer 360", "Comprehensive account profile: churn probability, financial exposure, and key risk drivers.")
     ids = df.sort_values("churn_probability", ascending=False)["customerID"].astype(str).tolist()
-    cid = st.selectbox("Customer", ids, help="Risk ke hisaab se sorted, search karne ke liye ID likho")
+    cid = st.selectbox("Select Customer", ids, help="Sorted by churn risk score; type ID to filter")
     row = df[df["customerID"].astype(str) == cid].iloc[0]
 
     left, right = st.columns([1.25, 1])
     with left, st.container(border=True):
-        card_title(f"Customer {cid}", f"Risk level: {row['risk_band']}")
+        card_title(f"Customer {cid}", f"Risk Tier: {row['risk_band']}")
         items = [(c, row[c]) for c in df.columns if c not in PROFILE_SKIP and pd.notna(row[c])]
         kv = "".join(f"<div><span>{k}</span><b>{v if not isinstance(v, float) else round(v, 2)}</b></div>"
                      for k, v in items[:18])
@@ -642,16 +642,16 @@ def page_c360(df):
         reasons = parse_reasons(row.get("top_3_churn_reasons"))
         if reasons:
             st.write("")
-            card_title("Why this customer is at risk")
+            card_title("Primary Risk Factors")
             st.markdown("".join(f'<span class="chip">{r}</span>' for r in reasons), unsafe_allow_html=True)
     with right, st.container(border=True):
-        chart(gauge(float(row["churn_probability"]), title="Churn risk", lo=LO_CUT, hi=HI_CUT), key="c360_g")
+        chart(gauge(float(row["churn_probability"]), title="Churn Risk", lo=LO_CUT, hi=HI_CUT), key="c360_g")
         k1, k2 = st.columns(2)
-        k1.metric("Monthly bill", money(row["MonthlyCharges"]))
-        k2.metric("Annual revenue at risk", money(row["annual_revenue_at_risk"]))
+        k1.metric("Monthly Billing", money(row["MonthlyCharges"]))
+        k2.metric("Annual Revenue at Risk", money(row["annual_revenue_at_risk"]))
 
     pct_rank = (df["churn_probability"] < row["churn_probability"]).mean()
-    note(f"Is customer ka risk in {len(df):,} customers mein se <b>{pct_rank:.0%}</b> se zyada hai.")
+    note(f"This account carries higher churn risk than <b>{pct_rank:.0%}</b> of the active customer base ({len(df):,} accounts).")
 
 
 # ------------------------------------------------------------- WHAT-IF
@@ -663,29 +663,29 @@ def build_scenarios(base, opts):
         if v != cur and "month" not in str(v).lower():
             sc[f"Move to {v} contract"] = {"Contract": v}
             best_contract = v
-    for col, label in [("TechSupport", "Add tech support"), ("OnlineSecurity", "Add online security"),
-                       ("OnlineBackup", "Add online backup"), ("DeviceProtection", "Add device protection")]:
+    for col, label in [("TechSupport", "Add Tech Support"), ("OnlineSecurity", "Add Online Security"),
+                       ("OnlineBackup", "Add Online Backup"), ("DeviceProtection", "Add Device Protection")]:
         if col in base and "Yes" in opts.get(col, []) and str(base[col]) != "Yes":
             sc[label] = {col: "Yes"}
     for v in opts.get("PaymentMethod", []):
         if v != base.get("PaymentMethod") and "automatic" in str(v).lower():
             sc[f"Switch to {v}"] = {"PaymentMethod": v}
     if "MonthlyCharges" in base:
-        sc["10% price cut"] = {"MonthlyCharges": round(float(base["MonthlyCharges"]) * 0.9, 2)}
+        sc["10% Price Discount"] = {"MonthlyCharges": round(float(base["MonthlyCharges"]) * 0.9, 2)}
     if best_contract and "TechSupport" in base and "Yes" in opts.get("TechSupport", []):
-        sc[f"Combo: {best_contract} + tech support"] = {"Contract": best_contract, "TechSupport": "Yes"}
+        sc[f"Bundle: {best_contract} + Tech Support"] = {"Contract": best_contract, "TechSupport": "Yes"}
     return sc
 
 
 def page_whatif(df):
-    header("What-if simulator", "Customer ki settings badlo aur dekho churn risk kitna girta hai.")
-    scope = st.radio("Customers", ["High risk only", "All customers in view"], horizontal=True)
+    header("What-If Simulator", "Simulate plan modifications and test real-time impact on predicted churn probability.")
+    scope = st.radio("Cohort Scope", ["High risk only", "All customers in view"], horizontal=True)
     pool = df[df["risk_band"] == "High"] if scope == "High risk only" and (df["risk_band"] == "High").any() else df
     ids = pool.sort_values("churn_probability", ascending=False)["customerID"].astype(str).tolist()
-    cid = st.selectbox("Select customer", ids)
+    cid = st.selectbox("Select Customer", ids)
     base = pool[pool["customerID"].astype(str) == cid].iloc[0].to_dict()
     cur = float(base["churn_probability"])
-    st.markdown(f"**Customer {cid}** &nbsp;|&nbsp; current churn risk **{cur:.1%}**")
+    st.markdown(f"**Customer {cid}** &nbsp;|&nbsp; Current churn risk: **{cur:.1%}**")
 
     opts = {c: sorted(DF[c].dropna().astype(str).unique()) for c in
             ["Contract", "InternetService", "TechSupport", "OnlineSecurity", "OnlineBackup",
@@ -693,20 +693,20 @@ def page_whatif(df):
     left, right = st.columns(2)
     changes = {}
     with left, st.container(border=True):
-        card_title("Change the plan")
-        for col, label in [("Contract", "Contract"), ("InternetService", "Internet service"),
-                           ("TechSupport", "Tech support"), ("OnlineSecurity", "Online security"),
-                           ("PaymentMethod", "Payment method")]:
+        card_title("Configure Retention Intervention")
+        for col, label in [("Contract", "Contract"), ("InternetService", "Internet Service"),
+                           ("TechSupport", "Tech Support"), ("OnlineSecurity", "Online Security"),
+                           ("PaymentMethod", "Payment Method")]:
             if col in opts:
                 cur_v = str(base.get(col))
                 idx = opts[col].index(cur_v) if cur_v in opts[col] else 0
                 changes[col] = st.selectbox(label, opts[col], index=idx, key=f"wi_{col}_{cid}")
         if "MonthlyCharges" in base:
             lo, hi = float(DF["MonthlyCharges"].min()), float(DF["MonthlyCharges"].max())
-            changes["MonthlyCharges"] = st.slider("Monthly charge ($)", lo, hi,
+            changes["MonthlyCharges"] = st.slider("Monthly Charges ($)", lo, hi,
                                                   float(np.clip(base["MonthlyCharges"], lo, hi)),
                                                   key=f"wi_mc_{cid}")
-        run = st.button("Run simulation", type="primary", **stretch(st.button))
+        run = st.button("Run Simulation", type="primary", **stretch(st.button))
 
     if run:
         try:
@@ -714,25 +714,25 @@ def page_whatif(df):
             scen = {k: predict_prob(base, v) for k, v in build_scenarios(base, opts).items()}
             st.session_state["sim"] = dict(cid=cid, new=new, scen=scen, changes=changes)
         except Exception as e:
-            st.error(f"Simulation chal nahi saki: {e}")
+            st.error(f"Simulation execution failed: {e}")
 
     sim = st.session_state.get("sim")
     with right, st.container(border=True):
-        card_title("Result")
+        card_title("Projected Outcome")
         if sim and sim["cid"] == cid:
-            chart(gauge(sim["new"], ref=cur, title="Simulated churn risk", lo=LO_CUT, hi=HI_CUT), key="wi_g")
+            chart(gauge(sim["new"], ref=cur, title="Simulated Churn Risk", lo=LO_CUT, hi=HI_CUT), key="wi_g")
             mc = float(sim["changes"].get("MonthlyCharges", base["MonthlyCharges"]))
             old_rev, new_rev = cur * float(base["MonthlyCharges"]) * 12, sim["new"] * mc * 12
             r1, r2, r3 = st.columns(3)
-            r1.metric("Risk change", f"{(sim['new'] - cur) * 100:+.1f} pts")
-            r2.metric("Annual revenue at risk", money(new_rev), money(new_rev - old_rev), delta_color="inverse")
-            r3.metric("Saved vs now", money(max(old_rev - new_rev, 0)))
+            r1.metric("Risk Delta", f"{(sim['new'] - cur) * 100:+.1f} pts")
+            r2.metric("Simulated Revenue at Risk", money(new_rev), money(new_rev - old_rev), delta_color="inverse")
+            r3.metric("Projected Value Saved", money(max(old_rev - new_rev, 0)))
         else:
-            st.info("Left side se settings badlo aur 'Run simulation' dabao.")
+            st.info("Adjust the account parameters on the left and click 'Run Simulation' to evaluate projected outcomes.")
 
     if sim and sim["cid"] == cid and sim["scen"]:
         with st.container(border=True):
-            card_title("Best single actions for this customer", "Har action alag se try kiya gaya")
+            card_title("Single-Action Sensitivity Analysis", "Impact of isolated interventions on customer retention probability")
             s = pd.DataFrame({"Action": list(sim["scen"].keys()),
                               "New risk": list(sim["scen"].values())})
             s["Risk change (pts)"] = (s["New risk"] - cur) * 100
@@ -742,17 +742,17 @@ def page_whatif(df):
                          text=s["Risk change (pts)"].map(lambda v: f"{v:+.1f}"))
             fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
             chart(style(fig, 80 + 40 * len(s), legend=False), key="wi_scen")
-            note("Ye model ke andaze hain, guarantee nahi. Asal asar offer chalane ke baad A/B test se napo.")
+            note("Estimates reflect pipeline probability predictions. Validate real-world campaign elasticity via randomized A/B trials.")
 
 
 # ------------------------------------------------------------- PLANNER
 def page_planner(df):
-    header("Retention planner", "Offer ka kharcha aur fayda hisaab karo, aur tay karo kitne customers ko contact karna theek hai.")
+    header("Retention Campaign Planner", "Model campaign unit economics and optimize outreach thresholds for maximum net profit.")
     c1, c2, c3 = st.columns(3)
-    offer = c1.number_input("Cost per retention offer ($)", 0.0, 1000.0, 50.0, 5.0)
-    rate = c2.slider("Offer success rate", 0.05, 1.0, 0.30, 0.05,
-                     help="Jo customers churn karte, un mein se kitne offer se ruk jate hain")
-    months = c3.number_input("Months of revenue saved", 1, 36, 12, 1)
+    offer = c1.number_input("Offer Cost per Account ($)", 0.0, 1000.0, 50.0, 5.0)
+    rate = c2.slider("Estimated Offer Acceptance Rate", 0.05, 1.0, 0.30, 0.05,
+                     help="Expected proportion of churn-prone accounts saved by this campaign")
+    months = c3.number_input("Customer Lifetime Saved (Months)", 1, 36, 12, 1)
 
     d = df[["customerID", "risk_band", "churn_probability", "MonthlyCharges"]
            + [c for c in ["top_3_churn_reasons"] if c in df.columns]].copy()
@@ -762,59 +762,59 @@ def page_planner(df):
     d["cum_net"] = d["net"].cumsum()
     n_opt = int(d["cum_net"].idxmax() + 1) if d["cum_net"].max() > 0 else 0
 
-    n = st.slider("Customers to contact", 0, len(d), n_opt,
-                  help=f"Suggested: {n_opt:,} customers (sab se zyada net fayda)")
+    n = st.slider("Target Outreach Volume", 0, len(d), n_opt,
+                  help=f"Optimal threshold: {n_opt:,} accounts (maximizes cumulative net profit)")
     sel = d.head(n)
     cost, gain = n * offer, float(sel["value"].sum())
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Offer cost", money(cost))
-    k2.metric("Expected revenue saved", money(gain))
-    k3.metric("Net benefit", money(gain - cost))
-    k4.metric("ROI", f"{(gain - cost) / cost:.0%}" if cost > 0 else "n/a")
+    k1.metric("Total Campaign Cost", money(cost))
+    k2.metric("Gross Revenue Preserved", money(gain))
+    k3.metric("Net Economic Benefit", money(gain - cost))
+    k4.metric("Campaign ROI", f"{(gain - cost) / cost:.0%}" if cost > 0 else "n/a")
 
     with st.container(border=True):
-        card_title("Net benefit vs customers contacted", "Peak ke baad aur contact karna nuqsan hai")
+        card_title("Net Return vs. Outreach Volume", "Outreach beyond the inflection point yields negative marginal returns")
         x = np.arange(1, len(d) + 1)
         fig = go.Figure(go.Scatter(x=x, y=d["cum_net"], mode="lines", line=dict(color=C["accent"], width=3)))
         if n > 0:
             fig.add_trace(go.Scatter(x=[n], y=[d["cum_net"].iloc[n - 1]], mode="markers",
-                                     marker=dict(size=12, color=C["med"]), name="Selected"))
-        fig.update_layout(xaxis_title="Customers contacted (best first)", yaxis_title="Cumulative net benefit ($)")
+                                     marker=dict(size=12, color=C["med"]), name="Selected Target"))
+        fig.update_layout(xaxis_title="Outreach Volume (Ranked by Net Value)", yaxis_title="Cumulative Net Return ($)")
         chart(style(fig, 320, legend=False), key="pl_curve")
 
     with st.container(border=True):
-        card_title("Contact list", "Is tarteeb se call karo")
+        card_title("Priority Outreach Queue", "Rank-ordered intervention call list")
         out = sel.copy()
         out["risk_band"] = out["risk_band"].astype(str)
         out["churn_pct"] = out["churn_probability"] * 100
         cols = [c for c in ["customerID", "risk_band", "churn_pct", "MonthlyCharges", "value", "top_3_churn_reasons"]
                 if c in out.columns]
         cfg = col_config(out)
-        cfg["value"] = st.column_config.NumberColumn("Expected saved ($)", format="$%.0f")
+        cfg["value"] = st.column_config.NumberColumn("Expected Saved ($)", format="$%.0f")
         table(out[cols].head(200), column_config=cfg, height=380)
-        st.download_button("Download contact list (CSV)", out[cols].to_csv(index=False).encode(),
-                           "retention_contact_list.csv", "text/csv")
-    note("Ye hisaab model ki probabilities par hai, isliye calibrated probabilities zaroori hain.")
+        st.download_button("Export Campaign Roster (CSV)", out[cols].to_csv(index=False).encode(),
+                           "campaign_outreach_list.csv", "text/csv")
+    note("Optimization calculations rely on well-calibrated risk probabilities to avoid misallocating retention budgets.")
 
 
 # ------------------------------------------------------------- MODEL HEALTH
 def page_health(df):
-    header("Model health", "Model kitna sahi hai, aur threshold kahan rakhna paisa bachata hai.")
+    header("Model Diagnostics & Performance", "Evaluate discrimination, calibration accuracy, and optimal decision thresholds.")
     if "actual_churn" not in df.columns:
-        st.info("Is page ke liye risk_scores.csv mein 'actual_churn' column chahiye.")
+        st.info("This evaluation view requires an 'actual_churn' ground-truth column in risk_scores.csv.")
         return
     d = df.copy()
     if "data_split" in d.columns:
         splits = sorted(d["data_split"].dropna().astype(str).unique())
         default = [s for s in splits if s.lower() == "test"] or splits
-        pick = st.multiselect("Data split", splits, default=default)
+        pick = st.multiselect("Dataset Partition", splits, default=default)
         d = d[d["data_split"].astype(str).isin(pick)]
         if any(p.lower() == "train" for p in pick):
-            note("Train rows par scores zyada acche dikhte hain. Asal sachai ke liye sirf Test select karo.")
+            note("Training set metrics may exhibit optimistic bias. Evaluate against the Holdout/Test split for unbiased verification.")
     d["y"] = to_binary(d["actual_churn"])
     d = d.dropna(subset=["y", "churn_probability"])
     if d["y"].nunique() < 2:
-        st.warning("Selected data mein sirf ek class hai, metrics nahi nikal sakte.")
+        st.warning("Selected partition contains only one target class; performance curves cannot be computed.")
         return
 
     from sklearn.metrics import (average_precision_score, brier_score_loss, precision_recall_curve,
@@ -822,99 +822,99 @@ def page_health(df):
     y, p = d["y"].astype(int).values, d["churn_probability"].values
     a, b, c, e = st.columns(4)
     a.metric("ROC-AUC", f"{roc_auc_score(y, p):.3f}")
-    b.metric("PR-AUC", f"{average_precision_score(y, p):.3f}", f"baseline {y.mean():.3f}", delta_color="off")
-    c.metric("Brier score", f"{brier_score_loss(y, p):.3f}", "lower is better", delta_color="off")
-    e.metric("Customers", f"{len(d):,}")
+    b.metric("PR-AUC", f"{average_precision_score(y, p):.3f}", f"baseline: {y.mean():.3f}", delta_color="off")
+    c.metric("Brier Score", f"{brier_score_loss(y, p):.3f}", "lower is better", delta_color="off")
+    e.metric("Sample Size", f"{len(d):,}")
 
-    t1, t2, t3, t4 = st.tabs(["Ranking quality", "Calibration", "Threshold and cost", "Lift"])
+    t1, t2, t3, t4 = st.tabs(["Ranking Performance", "Calibration", "Cost-Sensitive Thresholds", "Decile Lift"])
     with t1:
         x1, x2 = st.columns(2)
         fpr, tpr, _ = roc_curve(y, p)
         f = go.Figure([go.Scatter(x=fpr, y=tpr, mode="lines", line=dict(color=C["accent"], width=3), name="Model"),
-                       go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(color=C["mute"], dash="dot"), name="Random")])
-        f.update_layout(xaxis_title="False positive rate", yaxis_title="Recall")
+                       go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(color=C["mute"], dash="dot"), name="Random Guess")])
+        f.update_layout(xaxis_title="False Positive Rate", yaxis_title="True Positive Rate (Recall)")
         with x1:
-            card_title("ROC curve")
+            card_title("ROC Curve")
             chart(style(f, 320), key="h_roc")
         pr, rc, _ = precision_recall_curve(y, p)
         f = go.Figure([go.Scatter(x=rc, y=pr, mode="lines", line=dict(color=C["low"], width=3), name="Model"),
                        go.Scatter(x=[0, 1], y=[y.mean()] * 2, mode="lines", line=dict(color=C["mute"], dash="dot"), name="Baseline")])
         f.update_layout(xaxis_title="Recall", yaxis_title="Precision")
         with x2:
-            card_title("Precision-recall curve")
+            card_title("Precision-Recall Curve")
             chart(style(f, 320), key="h_pr")
     with t2:
-        card_title("Calibration", "Model ka '70%' asal mein 70% hona chahiye. Diagonal ke qareeb = acha")
+        card_title("Reliability Diagram (Calibration Curve)", "Alignment with diagonal indicates true probabilistic accuracy")
         bins = pd.cut(p, np.linspace(0, 1, 11), include_lowest=True)
         cal = pd.DataFrame({"p": p, "y": y, "bin": bins}).groupby("bin", observed=True).agg(
             predicted=("p", "mean"), actual=("y", "mean"), n=("y", "size")).reset_index()
-        f = go.Figure([go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(color=C["mute"], dash="dot"), name="Perfect"),
+        f = go.Figure([go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(color=C["mute"], dash="dot"), name="Ideal Calibration"),
                        go.Scatter(x=cal["predicted"], y=cal["actual"], mode="lines+markers",
                                   line=dict(color=C["accent"], width=3), marker=dict(size=cal["n"].clip(upper=400) / 25 + 6),
-                                  name="Model")])
-        f.update_layout(xaxis_title="Predicted probability", yaxis_title="Actual churn rate",
+                                  name="Observed Calibration")])
+        f.update_layout(xaxis_title="Mean Predicted Probability", yaxis_title="Empirical Churn Rate",
                         xaxis_tickformat=".0%", yaxis_tickformat=".0%")
         chart(style(f, 360), key="h_cal")
     with t3:
         k1, k2, k3 = st.columns(3)
-        fn_cost = k1.number_input("Cost of missing a churner ($)", 0.0, 10000.0,
+        fn_cost = k1.number_input("Cost of False Negative (Missed Churner) ($)", 0.0, 10000.0,
                                   float(round(d["MonthlyCharges"].mean() * 12)), 10.0)
-        fp_cost = k2.number_input("Cost of a wasted offer ($)", 0.0, 10000.0, 150.0, 10.0)
+        fp_cost = k2.number_input("Cost of False Positive (Wasted Incentive) ($)", 0.0, 10000.0, 150.0, 10.0)
         ths = np.round(np.arange(0.02, 0.99, 0.01), 2)
         costs = []
         for t in ths:
             pred = p >= t
             costs.append(((~pred) & (y == 1)).sum() * fn_cost + (pred & (y == 0)).sum() * fp_cost)
         best = float(ths[int(np.argmin(costs))])
-        t_sel = k3.slider("Threshold", 0.02, 0.98, best, 0.01)
+        t_sel = k3.slider("Decision Threshold", 0.02, 0.98, best, 0.01)
         pred = p >= t_sel
         tp, fp = int((pred & (y == 1)).sum()), int((pred & (y == 0)).sum())
         fn, tn = int(((~pred) & (y == 1)).sum()), int(((~pred) & (y == 0)).sum())
         prec = tp / (tp + fp) if tp + fp else 0
         rec = tp / (tp + fn) if tp + fn else 0
         f1 = 2 * prec * rec / (prec + rec) if prec + rec else 0
-        note(f"Cost ke hisaab se best threshold <b>{best:.2f}</b> hai. Abhi chuna hua: <b>{t_sel:.2f}</b>.")
+        note(f"Optimal economic threshold: <b>{best:.2f}</b>. Selected threshold: <b>{t_sel:.2f}</b>.")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Recall", pct(rec)); m2.metric("Precision", pct(prec))
-        m3.metric("F1", f"{f1:.2f}"); m4.metric("Total cost", money(fn * fn_cost + fp * fp_cost))
+        m3.metric("F1 Score", f"{f1:.2f}"); m4.metric("Total Misclassification Cost", money(fn * fn_cost + fp * fp_cost))
         x1, x2 = st.columns(2)
         cm = px.imshow([[tn, fp], [fn, tp]], text_auto=True, aspect="auto",
-                       x=["Predicted stay", "Predicted churn"], y=["Actually stayed", "Actually churned"],
+                       x=["Predicted Retain", "Predicted Churn"], y=["Actual Retain", "Actual Churn"],
                        color_continuous_scale=[[0, "#0b1a29"], [1, C["accent"]]])
         cm.update_layout(coloraxis_showscale=False)
         with x1:
-            card_title("Confusion matrix")
+            card_title("Confusion Matrix")
             chart(style(cm, 300, legend=False), key="h_cm")
         f = go.Figure(go.Scatter(x=ths, y=costs, mode="lines", line=dict(color=C["med"], width=3)))
         f.add_vline(x=t_sel, line_dash="dot", line_color=C["accent"])
-        f.update_layout(xaxis_title="Threshold", yaxis_title="Total cost ($)")
+        f.update_layout(xaxis_title="Classification Threshold", yaxis_title="Total Business Cost ($)")
         with x2:
-            card_title("Cost by threshold")
+            card_title("Misclassification Cost Curve")
             chart(style(f, 300, legend=False), key="h_cost")
     with t4:
-        card_title("Lift by risk decile", "Top decile mein churn rate overall se kitna zyada hai")
+        card_title("Decile Lift Profile", "Churn concentration index relative to baseline incidence rate")
         d2 = pd.DataFrame({"p": p, "y": y})
         d2["decile"] = 10 - pd.qcut(d2["p"].rank(method="first"), 10, labels=False)
         lg = d2.groupby("decile").agg(churn_rate=("y", "mean"), n=("y", "size")).reset_index().sort_values("decile")
         lg["lift"] = lg["churn_rate"] / y.mean()
         f = px.bar(lg, x="decile", y="churn_rate", text=lg["lift"].map(lambda v: f"{v:.1f}x"),
                    color_discrete_sequence=[C["accent"]])
-        f.add_hline(y=y.mean(), line_dash="dot", line_color=C["med"], annotation_text="Overall churn rate")
-        f.update_layout(xaxis_title="Risk decile (1 = riskiest)", yaxis_title="Actual churn rate", yaxis_tickformat=".0%",
+        f.add_hline(y=y.mean(), line_dash="dot", line_color=C["med"], annotation_text="Baseline Churn Rate")
+        f.update_layout(xaxis_title="Risk Decile (1 = Highest Risk)", yaxis_title="Empirical Churn Rate", yaxis_tickformat=".0%",
                         xaxis=dict(dtick=1))
         chart(style(f, 340, legend=False), key="h_lift")
 
 
 # ------------------------------------------------------------- SHAP
 def page_shap(df):
-    header("Explainability", "Model kin wajahon se churn predict karta hai.")
+    header("Model Interpretability & SHAP Analytics", "Global feature attributions and recurring churn drivers.")
     with st.container(border=True):
-        card_title("SHAP summary", "Har feature ka global asar")
+        card_title("Global SHAP Feature Summary", "Aggregate feature impact on model predictions")
         p = find_file(SHAP_FILES)
         if p:
             show_image(p)
         else:
-            st.error("SHAP plot nahi mila (reports/figures/shap_summary.png). Phase 4 notebook chalao aur image save karo.")
+            st.error("SHAP plot not found (reports/figures/shap_summary.png). Run your pipeline explanation notebook to generate and export the figure.")
 
     if "top_3_churn_reasons" in df.columns:
         rows = []
@@ -923,23 +923,23 @@ def page_shap(df):
                 rows.append((reason, r["annual_revenue_at_risk"], str(r["risk_band"])))
         if rows:
             rs = pd.DataFrame(rows, columns=["reason", "revenue", "band"])
-            only_high = st.toggle("High-risk customers only", value=True)
+            only_high = st.toggle("High-Risk Accounts Only", value=True)
             if only_high and (rs["band"] == "High").any():
                 rs = rs[rs["band"] == "High"]
             g = rs.groupby("reason").agg(customers=("revenue", "size"), revenue=("revenue", "sum")).reset_index()
             g = g.sort_values("customers").tail(12)
             a, b = st.columns(2)
             with a, st.container(border=True):
-                card_title("Most common churn reasons", "Kitne customers mein ye wajah top-3 mein hai")
+                card_title("Most Prevalent Churn Drivers", "Account frequency where feature ranks in top 3 risk factors")
                 f = px.bar(g, x="customers", y="reason", orientation="h", color_discrete_sequence=[C["high"]])
-                f.update_layout(yaxis_title=None, xaxis_title="Customers")
+                f.update_layout(yaxis_title=None, xaxis_title="Account Count")
                 chart(style(f, 380, legend=False), key="sh_c")
             with b, st.container(border=True):
-                card_title("Revenue linked to each reason", "Annual revenue at risk (ek customer ki kai wajah ho sakti hain)")
+                card_title("Revenue Exposure by Driver", "Total annual revenue linked to primary churn reasons")
                 g2 = g.sort_values("revenue")
                 f = px.bar(g2, x="revenue", y="reason", orientation="h", color_discrete_sequence=[C["accent"]],
                            text=g2["revenue"].map(money))
-                f.update_layout(yaxis_title=None, xaxis_title="Revenue ($)")
+                f.update_layout(yaxis_title=None, xaxis_title="Revenue Exposure ($)")
                 chart(style(f, 380, legend=False), key="sh_r")
 
 
