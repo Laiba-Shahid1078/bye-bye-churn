@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#d4af37" # Premium Gold for primary actions
+backgroundColor = "#0e1117" # Deep Slate/Dark Navy Background
+secondaryBackgroundColor = "#1f242d" # Slightly lighter slate for sidebar & cards
+textColor = "#f4f4f4" # Crisp White/Gray for readability
+font = "sans serif"
